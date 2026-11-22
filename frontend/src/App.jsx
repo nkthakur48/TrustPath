@@ -3,7 +3,7 @@ import {
   Shield, ShieldCheck, ShieldAlert, ShieldX,
   Search, Zap, Eye, ArrowRight, Check,
   AlertTriangle, XCircle, Building2, FileText,
-  User, MessageSquare, Settings, Lock,
+  User, Globe, Lock, Sun, Moon,
   CheckCircle, TrendingUp, Clock, Sparkles,
   ChevronRight, ExternalLink, AlertCircle,
 } from 'lucide-react'
@@ -112,13 +112,10 @@ const ANALYZE_STEPS = [
   { text: 'Verifying company identity…',       Icon: Building2 },
   { text: 'Analyzing job posting integrity…',  Icon: FileText   },
   { text: 'Checking recruiter authenticity…',  Icon: User       },
-  { text: 'Scanning communication channels…',  Icon: MessageSquare },
-  { text: 'Evaluating hiring process…',        Icon: Settings   },
-  { text: 'Calculating trust score…',          Icon: Lock       },
+  { text: 'Verifying job portal legitimacy…',  Icon: Globe      },
+  { text: 'Validating posting source URL…',    Icon: Lock       },
+  { text: 'Calculating trust score…',          Icon: CheckCircle },
 ]
-
-const CHECK_ICONS  = { company: Building2, posting: FileText, recruiter: User, channel: MessageSquare, process: Settings }
-const STATUS_LABEL = { pass: 'PASSED', warn: 'WARNING', fail: 'FAILED' }
 
 async function analyze(form) {
   const res = await fetch('/api/v1/analyze', {
@@ -132,6 +129,72 @@ async function analyze(form) {
   if (!res.ok) throw new Error(res.status === 422 ? 'Please paste the job description.' : 'Analysis service error.')
   const d = await res.json()
   return { ...d, pct: d.trust_score, title: form.title || 'Job Posting', company: form.company || 'Unknown Company', recruiter: form.recruiter }
+}
+
+function getChecks(verdict, hasRecruiter) {
+  if (verdict === 'fake') return [
+    { Icon: Building2, name: 'Company Identity',   status: 'FAILED',      cls: 'fail' },
+    { Icon: FileText,  name: 'Job Posting',         status: 'RED FLAGS',   cls: 'fail' },
+    { Icon: User,      name: 'Recruiter',           status: 'FAKE',        cls: 'fail' },
+    { Icon: Globe,     name: 'Job Portal',          status: 'UNVERIFIED',  cls: 'fail' },
+    { Icon: Lock,      name: 'Source URL',          status: 'SUSPICIOUS',  cls: 'fail' },
+  ]
+  if (verdict === 'suspicious') return [
+    { Icon: Building2, name: 'Company Identity',   status: 'PARTIAL',     cls: 'warn' },
+    { Icon: FileText,  name: 'Job Posting',         status: 'WARNINGS',    cls: 'warn' },
+    { Icon: User,      name: 'Recruiter',           status: 'UNVERIFIED',  cls: 'warn' },
+    { Icon: Globe,     name: 'Job Portal',          status: 'UNRECOGNISED',cls: 'warn' },
+    { Icon: Lock,      name: 'Source URL',          status: 'NORMAL',      cls: 'pass' },
+  ]
+  return [
+    { Icon: Building2, name: 'Company Identity',   status: 'VERIFIED',    cls: 'pass' },
+    { Icon: FileText,  name: 'Job Posting',         status: 'CLEAN',       cls: 'pass' },
+    { Icon: User,      name: 'Recruiter',           status: hasRecruiter ? 'VERIFIED' : 'UNVERIFIED', cls: hasRecruiter ? 'pass' : 'warn' },
+    { Icon: Globe,     name: 'Job Portal',          status: 'VERIFIED',    cls: 'pass' },
+    { Icon: Lock,      name: 'Source URL',          status: 'SECURE',      cls: 'pass' },
+  ]
+}
+
+function getSignals(verdict) {
+  if (verdict === 'fake') return [
+    { dot: 'red', text: 'No verifiable company registration found' },
+    { dot: 'red', text: 'Recruiter using personal/free email domain' },
+    { dot: 'red', text: 'Upfront payment or deposit requested' },
+    { dot: 'red', text: 'Communication moved off official platform' },
+    { dot: 'red', text: 'Unusually high salary with no skill requirements' },
+  ]
+  if (verdict === 'suspicious') return [
+    { dot: 'red',   text: 'Recruiter domain could not be fully verified' },
+    { dot: 'red',   text: 'Some language patterns raise caution flags' },
+    { dot: 'green', text: 'Company appears to be a real registered entity' },
+    { dot: 'green', text: 'Job responsibilities are specific and realistic' },
+    { dot: 'green', text: 'No payment requests detected in description' },
+  ]
+  return [
+    { dot: 'green', text: 'Specific role requirements listed' },
+    { dot: 'green', text: 'Realistic and market-aligned salary range' },
+    { dot: 'green', text: 'Verifiable company name and location' },
+    { dot: 'green', text: 'Professional language and clear responsibilities' },
+    { dot: 'green', text: 'Standard benefits package described' },
+  ]
+}
+
+function getSteps(verdict) {
+  if (verdict === 'fake') return [
+    { n: '!', title: 'Do NOT apply or respond',  sub: 'Engaging further risks financial loss or identity theft.' },
+    { n: '2', title: 'Report the posting',        sub: 'Flag it on the platform where you found it.' },
+    { n: '3', title: 'Warn others',               sub: 'Share this result to protect fellow job seekers.' },
+  ]
+  if (verdict === 'suspicious') return [
+    { n: '1', title: 'Verify via official channels',   sub: 'Call the company directly using numbers from their official website.' },
+    { n: '2', title: "Check the recruiter's LinkedIn", sub: 'Confirm they are listed as an employee of the company.' },
+    { n: '3', title: 'Proceed with caution',           sub: 'Do not share sensitive documents until identity is confirmed.' },
+  ]
+  return [
+    { n: '1', title: 'Research the company',    sub: "Check Glassdoor, LinkedIn, and the company's official site." },
+    { n: '2', title: 'Tailor your application', sub: 'Customize your CV and cover letter to match the requirements.' },
+    { n: '3', title: 'Apply with confidence',   sub: 'This looks like a legitimate opportunity worth pursuing.' },
+  ]
 }
 
 /* ─── HOME PAGE ─────────────────────────────────────────── */
@@ -154,12 +217,12 @@ function HomePage({ onNavigate, gmailError }) {
   }
 
   const howItWorks = [
-    { n:'1', title:'Company Identity',      desc:'Domain intelligence, business registration checks, and official website corroboration to confirm the company actually exists.',  Icon: Building2    },
-    { n:'2', title:'Job Posting Integrity', desc:'Scans for unrealistic salary claims, vague responsibilities, urgent language, and payment requests disguised as onboarding.',   Icon: FileText     },
-    { n:'3', title:'Recruiter Verification',desc:'Cross-references recruiter identity against LinkedIn profiles, company directories, and official career-page listings.',         Icon: User         },
-    { n:'4', title:'Communication Channel', desc:'Flags off-platform interviews, personal Gmail/Yahoo contacts, WhatsApp-only hiring, and suspicious redirect links.',            Icon: MessageSquare},
-    { n:'5', title:'Hiring Process',        desc:'Detects red flags like upfront fees, equipment deposits, overpayment schemes, and requests for sensitive documents too early.', Icon: Settings     },
-    { n:'✓', title:'Instant Verdict',       desc:'Get a clear Real / Suspicious / Fake verdict with a confidence score and actionable next steps tailored to the result.',       Icon: ShieldCheck, highlight: true },
+    { n:'1', title:'Company Identity',       desc:'Domain intelligence, business registration checks, and official website corroboration to confirm the company actually exists.',  Icon: Building2  },
+    { n:'2', title:'Job Posting Integrity',  desc:'Scans for unrealistic salary claims, vague responsibilities, urgent language, and payment requests disguised as onboarding.',   Icon: FileText   },
+    { n:'3', title:'Recruiter Verification', desc:'Cross-references recruiter identity against LinkedIn profiles, company directories, and official career-page listings.',         Icon: User       },
+    { n:'4', title:'Job Portal Verified',    desc:'Checks whether the posting originates from a recognized, legitimate job board — flags postings shared only via WhatsApp, Telegram, or unknown sites.', Icon: Globe },
+    { n:'5', title:'Source URL Security',    desc:'Validates the posting URL for HTTPS, domain age, typosquatting patterns, and known phishing registrars.',                      Icon: Lock       },
+    { n:'✓', title:'Instant Verdict',        desc:'Get a clear Real / Suspicious / Fake verdict with a confidence score and actionable next steps tailored to the result.',       Icon: ShieldCheck, highlight: true },
   ]
 
   return (
@@ -221,9 +284,9 @@ function HomePage({ onNavigate, gmailError }) {
       <div className="stats-strip">
         {[
           { val: <Counter target={1} suffix=" in 7" />, lbl: 'Job postings are fraudulent', Icon: TrendingUp },
-          { val: <span>AI + Rules</span>,                                                      lbl: 'Hybrid detection engine',  Icon: ShieldCheck   },
-          { val: <Counter target={5} />,                                                      lbl: 'Independent checks',       Icon: CheckCircle   },
-          { val: <span>Seconds</span>,                                                         lbl: 'Typical analysis time',    Icon: Clock         },
+          { val: <span>AI + Rules</span>,               lbl: 'Hybrid detection engine',      Icon: ShieldCheck },
+          { val: <Counter target={5} />,                lbl: 'Independent checks',            Icon: Globe       },
+          { val: <span>Seconds</span>,                  lbl: 'Typical analysis time',         Icon: Clock       },
         ].map((s, i) => (
           <Reveal key={i} delay={i * 80}>
             <div className="stat">
@@ -383,9 +446,9 @@ function DetectPage({ initialData, onResult }) {
                   <div className="form-field">
                     <label>Posting Source</label>
                     <select value={form.source} onChange={set('source')}>
-                      <option value="">Select platform…</option>
-                      {['LinkedIn','Indeed','Naukri','WhatsApp','Email','Telegram','Company Website','Other'].map(o => <option key={o}>{o}</option>)}
-                    </select>
+                       <option value="">Select platform…</option>
+                       {['LinkedIn','Indeed','Naukri','Glassdoor','Internshala','Company Website','WhatsApp','Telegram','Email','Other'].map(o => <option key={o}>{o}</option>)}
+                     </select>
                   </div>
                 </div>
                 <div className="form-row">
@@ -651,7 +714,12 @@ export default function App() {
   const [page,       setPage]       = useState('home')
   const [detectInit, setDetectInit] = useState(null)
   const [result,     setResult]     = useState(null)
+  const [theme,      setTheme]      = useState('dark')
   const [gmailError, setGmailError] = useState('')
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
 
   useEffect(() => {  // returning from Google's consent screen
     const g = new URLSearchParams(window.location.search).get('gmail')
@@ -671,8 +739,7 @@ export default function App() {
     <div className="app">
       <nav className="nav">
         <div className="logo" onClick={() => goTo('home')} style={{ cursor:'pointer' }}>
-          <div className="logo-shield"><Shield size={16} /></div>
-          TrustPath AI
+          <img src="/logo.jpeg" alt="TrustPath" className="logo-img" />
         </div>
         <ul className="nav-links">
           {[['home','Home'],['detect','Detect'],['about','About']].map(([id, label]) => (
@@ -681,9 +748,14 @@ export default function App() {
             </li>
           ))}
         </ul>
-        <button className="nav-cta" onClick={() => goTo('detect')}>
-          <Zap size={13} /> Analyze a Job
-        </button>
+        <div className="nav-actions">
+          <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <button className="nav-cta" onClick={() => goTo('detect')}>
+            <Zap size={13} /> Analyze a Job
+          </button>
+        </div>
       </nav>
 
       <div className="page-anim" key={page}>
