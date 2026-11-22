@@ -739,10 +739,7 @@ export default function App() {
     <div className="app">
       <nav className="nav">
         <div className="logo" onClick={() => goTo('home')} style={{ cursor:'pointer' }}>
-          <img src="/logo-icon.jpeg" alt="TrustPath" className="logo-img" />
-          <span className="logo-text">
-            <span className="logo-trust">Trust</span><span className="logo-path">Path</span>
-          </span>
+          <img src="/logo.jpeg" alt="TrustPath" className="logo-img" />
         </div>
         <ul className="nav-links">
           {[['home','Home'],['detect','Detect'],['about','About']].map(([id, label]) => (
