@@ -739,8 +739,7 @@ export default function App() {
     <div className="app">
       <nav className="nav">
         <div className="logo" onClick={() => goTo('home')} style={{ cursor:'pointer' }}>
-          <div className="logo-shield"><Shield size={16} /></div>
-          TrustPath AI
+          <img src="/logo.jpeg" alt="TrustPath" className="logo-img" />
         </div>
         <ul className="nav-links">
           {[['home','Home'],['detect','Detect'],['about','About']].map(([id, label]) => (
