@@ -1,8 +1,21 @@
-from app.schemas.analyze import (CHECK_IDS, CHECK_LABELS, AnalyzeRequest, AnalyzeResponse,
-                                 Check, NextStep, Signal, TrailStep)
-from app.services import openrouter, rules, tools
+"""Merges the rules outcome with the optional agent investigation. Verdict thresholds live here only."""
 
-_RANK = {"pass": 0, "warn": 1, "fail": 2}
+from typing import List, Optional
+
+from app.schemas.analyze import CHECK_IDS, CHECK_LABELS, AnalyzeRequest, AnalyzeResponse, Check, NextStep, Signal, TrailStep
+from app.services.openrouter import LLMOut
+from app.services.rules import RulesOutcome
+from app.skills.base import STATUS_RANK
+
+REAL_MIN_SCORE = 75
+FAKE_MAX_SCORE = 44
+RISK_ADJUSTMENT_MIN = -40
+RISK_ADJUSTMENT_MAX = 10
+MAX_SIGNALS = 8
+
+COMPANY_UNVERIFIED_NOTE = "Not verified against a registry"
+COMPANY_TEXT_ONLY_NOTE = "Based on posting text only; not checked against a registry"
+AI_ESCALATED_NOTE = "Flagged by AI review"
 
 STATIC_STEPS = {
     "fake": [("Do not apply or respond", "Engaging further risks financial loss or identity theft."),
@@ -17,60 +30,71 @@ STATIC_STEPS = {
 }
 
 
-def _verdict(score: int) -> str:
-    return "real" if score >= 75 else "suspicious" if score >= 45 else "fake"
+def clamp(value: int, low: int, high: int) -> int:
+    return max(low, min(high, value))
 
 
-def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
-    r = rules.evaluate(req)
+def verdict_for(score: int) -> str:
+    if score >= REAL_MIN_SCORE:
+        return "real"
+    return "fake" if score <= FAKE_MAX_SCORE else "suspicious"
 
-    # Deterministic first step: investigate the recruiter's domain (also works with no LLM).
-    trail = []
-    evidence = ""
-    email = req.recruiter_email.strip().lower()
-    domain = email.rsplit("@", 1)[1] if "@" in email else ""
-    if domain and domain not in rules.FREE_EMAIL:
-        info, finding = tools.check_domain(domain)
-        rules.apply_domain_info(r, info)
-        trail.append(TrailStep(tool="check_domain", input=domain, finding=finding))
-        evidence = finding
 
-    agent = openrouter.run_agent(req, evidence)
-    llm = None
-    if agent:
-        llm, agent_trail = agent
-        trail += agent_trail
+def _checks(rules: RulesOutcome, llm: Optional[LLMOut]) -> List[Check]:
+    checks = []
+    for check_id in CHECK_IDS:
+        result = rules.results[check_id]
+        status, note = result.status, result.note
+        llm_status = llm.checks.get(check_id) if llm else None
+        if llm_status and STATUS_RANK[llm_status] > STATUS_RANK[status]:  # may escalate, never relax
+            status, note = llm_status, AI_ESCALATED_NOTE
+        if check_id == "company" and status == "pass":
+            # Rules alone can't vouch for a company; agreement with the agent is the most we claim.
+            status, note = ("pass", COMPANY_TEXT_ONLY_NOTE) if llm else ("warn", COMPANY_UNVERIFIED_NOTE)
+        checks.append(Check(id=check_id, label=CHECK_LABELS[check_id], status=status, note=note))
+    return checks
 
-    score = max(0, min(100, r.score))  # domain penalties are applied after rules' own clamp
-    checks = dict(r.checks)
-    signals = [Signal(type=t, text=x) for t, x in r.signals]
-    steps = None
+
+def _signals(rules: RulesOutcome, llm: Optional[LLMOut]) -> List[Signal]:
+    candidates = [Signal(type=t, text=x) for t, x in rules.signals] + (list(llm.signals) if llm else [])
+    seen, unique = set(), []
+    for signal in candidates:
+        key = signal.text.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(signal)
+    return unique[:MAX_SIGNALS]
+
+
+def merge(rules: RulesOutcome, llm: Optional[LLMOut], trail: List[TrailStep]) -> AnalyzeResponse:
+    score = rules.score
     if llm:
-        score = max(0, min(100, score + max(-40, min(10, llm.risk_adjustment))))
-        for cid, st in llm.checks.items():  # LLM may escalate, never relax
-            if cid in checks and _RANK[st] > _RANK[checks[cid][0]]:
-                checks[cid] = (st, "Flagged by AI review")
-        seen = {s.text for s in signals}
-        signals += [s for s in llm.signals if s.text not in seen]
-        steps = llm.next_steps
+        score += clamp(llm.risk_adjustment, RISK_ADJUSTMENT_MIN, RISK_ADJUSTMENT_MAX)
+    score = clamp(score, 0, 100)
+    checks = _checks(rules, llm)
 
-    # Safety floor: rules-detected payment/ID/overpayment can't be argued away by the LLM.
-    if r.hard >= 2:
-        score = min(score, 44)
-    elif r.hard == 1:
-        score = min(score, 74)
+    # Safety floor: rules-detected payment/ID/overpayment can't be argued away by the agent.
+    if len(rules.hard_rules) >= 2:
+        score = min(score, FAKE_MAX_SCORE)
+    elif rules.hard_rules or rules.caps_verdict or any(c.status == "fail" for c in checks):
+        score = min(score, REAL_MIN_SCORE - 1)
 
-    verdict = _verdict(score)
-    steps = steps or [NextStep(title=t, detail=d) for t, d in STATIC_STEPS[verdict]]
+    verdict = verdict_for(score)
+    steps = list(llm.next_steps) if llm and llm.next_steps else [NextStep(title=t, detail=d) for t, d in STATIC_STEPS[verdict]]
     return AnalyzeResponse(
         verdict=verdict,
         trust_score=score,
         risk={"real": "low", "suspicious": "medium", "fake": "high"}[verdict],
-        checks=[Check(id=c, label=CHECK_LABELS[c], status=checks[c][0], note=checks[c][1])
-                for c in CHECK_IDS],
-        signals=signals[:8],
+        checks=checks,
+        signals=_signals(rules, llm),
         next_steps=steps,
         engine="rules+agent" if llm else "rules",
         trail=trail,
         draft_message=llm.draft_message if llm else "",
     )
+
+
+def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
+    from app.graph.analysis import get_analysis_graph
+
+    return get_analysis_graph().invoke({"request": req})["response"]

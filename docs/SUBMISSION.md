@@ -21,6 +21,7 @@ React UI ──POST /api/v1/analyze──> FastAPI
               verdict, trust score, 5 checks, signals, investigation trail, next steps, draft message
 ```
 
+- **Gmail scan.** One click on the home page connects Gmail (read-only OAuth) and ranks the user's job-related emails, Spam included, by fraud risk. The triage uses rules and domain age only (no mailbox content goes to an LLM); the user can send any email to the full agent. Tokens stay in memory and nothing is stored.
 - **Agentic.** The model decides which tools to call (domain age, fetching the job link or careers page), and the UI shows the investigation trail. It also drafts the verification message for the user.
 - **Rules first, AI where it adds value.** Rules are free, instant and explainable. The LLM adds semantic judgement and can only make a result *more* suspicious; it cannot relax a rules failure.
 - **Safety floor.** Postings that ask for upfront payment, ID/bank details, or use overpayment language can never be returned as "real", whatever the model says. This also blunts prompt injection from the posting text.
@@ -30,15 +31,17 @@ React UI ──POST /api/v1/analyze──> FastAPI
 
 ## 3. How IBM Bob was used
 
-> TODO (team): fill this in honestly before submitting. The slides require it. List each task where IBM Bob did the work, with one line each. Suggested format:
+IBM Bob was used in a separate session to produce the project's **planning, architecture and code**. Bob's output was the starting point for this repository.
 
-| Area | What IBM Bob did | Evidence (commit/PR/screenshot) |
-|------|------------------|---------------------------------|
-| e.g. Backend scaffold | ... | ... |
-| e.g. Frontend UI | ... | ... |
-| e.g. Tests / refactor | ... | ... |
+| Area | What IBM Bob did | Evidence |
+|------|------------------|----------|
+| Planning | Product and implementation planning | TODO: link/screenshot of the Bob session |
+| Architecture | System design (frontend, API, detection approach) | TODO |
+| Code | Code generated in the Bob session | TODO: list files/commits |
 
-Runtime AI calls go through OpenRouter (consumer-facing agent). If any IBM watsonx technology is also used, list it here.
+> TODO (team): replace each TODO with a specific file, commit or screenshot. Judges can then verify the claim.
+
+Additional tooling, disclosed for transparency: the agentic `/analyze` endpoint (rules engine, OpenRouter tool-calling agent, tests), the wiring of the React UI to it, and these docs were implemented in a later session with the pi coding agent, following `docs/IMPLEMENTATION_PLAN.md`. Runtime AI calls go through OpenRouter.
 
 ## 4. Limitations (be upfront)
 
@@ -62,7 +65,7 @@ Record the video, post it on social media and tag IBM for the Most Creative Vide
 
 ```bash
 cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env            # add OPENROUTER_API_KEY to enable the agent
+cp .env.example .env            # add OPENROUTER_API_KEY (agent) and GOOGLE_CLIENT_ID/SECRET (Gmail scan)
 .venv/bin/uvicorn app.main:app  # http://localhost:8000/docs
 cd ../frontend && npm install && npm run dev   # proxies /api to :8000
 ```

@@ -37,63 +37,63 @@ A real company can have a fake posting that impersonates it, so checking the com
 
 | Area | State |
 |------|-------|
-| Frontend UI (home, detect, about, result views) | Working prototype, single static file |
-| Verdict logic | **Mock.** Keyword match (`whatsapp`, `telegram`, `deposit`, `training fee`, ...) plus source channel; confidence is random within a band |
-| Backend API | Scaffold only: health endpoint, placeholder in-memory CRUD, tests |
-| Five checks (WHOIS, registry, LinkedIn, NLP) | Not implemented |
-| Frontend to backend integration | Not done |
-| Persistence, auth, rate limiting | Not started |
+| React UI (home, detect, result, Gmail inbox, about) | Working, wired to the API |
+| `POST /api/v1/analyze` | Working: rules engine plus domain check (DNS and registration age via RDAP) |
+| AI agent (OpenRouter tool calling: `check_domain`, `fetch_page`) | Working when `OPENROUTER_API_KEY` is set; falls back to rules only |
+| Gmail scan (read-only OAuth) | Working when Google OAuth credentials are set; see below |
+| Business registry / LinkedIn verification | Not implemented |
+| Evaluation set and accuracy figure | Not built. **No accuracy is claimed.** |
+| Persistence, auth, rate limiting | Not started (stateless by design) |
 
-The "97.4% accuracy" and "<10s" figures in the UI are placeholders, not measurements. Do not quote them externally until a labelled evaluation set backs them.
+Next steps: labelled evaluation set, registry checks, rate limiting, per-user Gmail sessions backed by a store.
 
-Suggested next steps:
-1. Define a `POST /api/v1/analyze` contract (input: description/URL, company, recruiter email; output: verdict, score, per-check results, signals, next steps).
-2. Implement the cheapest high-signal checks first: payment/urgency language, free-email recruiter domain, off-platform channel, domain age and lookalike detection.
-3. Build a labelled dataset and an evaluation harness before adding model-based scoring.
-4. Wire the frontend to the API and remove the mock.
+## Features
+
+- **Analyze a posting:** verdict, trust score, five checks, signals, the agent's investigation trail, next steps, and a drafted message to verify the recruiter.
+- **Gmail scan:** one click on the home page. Connect Gmail (read-only), and TrustPath lists job-related emails from the last 30 days (including Spam) ranked by risk, using rules and domain age. Click *Investigate* to run the full agent on any email. Tokens are kept in memory only and no mailbox content is stored; *Disconnect* ends the session.
 
 ## Architecture
 
 ```
-index.html  (static UI, mock scoring in JS)
-     |  not connected yet
-     v
-backend/    FastAPI app
-  app/main.py            app factory, CORS
-  app/api/router.py      mounts routes under /api/v1
-  app/api/routes/        health, items (placeholder)
-  app/schemas/           Pydantic models
-  app/core/config.py     env-driven settings
-  tests/                 pytest + FastAPI TestClient
+frontend/ (React + Vite) ──/api proxy──> backend/ (FastAPI)
+                                           app/api/routes/   analyze, gmail, health
+                                           app/services/     rules, tools, openrouter (agent), analyzer, gmail
+                                           app/schemas/      Pydantic models
+                                           app/core/config.py env-driven settings
+                                           tests/            pytest, runs offline
 ```
 
 ## Getting started
 
-Frontend: open `index.html` in a browser. No build step.
-
-Backend (Python, FastAPI):
-
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload     # http://localhost:8000/docs
-pytest
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env              # see Configuration
+.venv/bin/uvicorn app.main:app    # http://localhost:8000/docs
+.venv/bin/pytest
+
+cd ../frontend && npm install && npm run dev   # http://localhost:5173, proxies /api to :8000
 ```
 
 ### API
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/` | Welcome message |
 | GET | `/api/v1/health` | Status, version, environment |
-| GET, POST | `/api/v1/items` | Placeholder CRUD, in-memory, to be removed |
-| GET, DELETE | `/api/v1/items/{id}` | Same |
+| POST | `/api/v1/analyze` | Full analysis of one posting (agent if a key is set) |
+| GET | `/api/v1/gmail/auth-url` | Starts Google OAuth; 503 if not configured |
+| GET | `/api/v1/gmail/callback` | OAuth redirect target |
+| POST | `/api/v1/gmail/scan` | Triage recent job emails, riskiest first (no LLM) |
+| POST | `/api/v1/gmail/disconnect` | Ends the Gmail session |
 
 ### Configuration (`backend/.env`)
 
-`PROJECT_NAME`, `ENVIRONMENT`, `DEBUG`, `API_V1_PREFIX`, `CORS_ORIGINS`.
+| Variable | Purpose |
+|----------|---------|
+| `OPENROUTER_API_KEY` | Enables the AI agent. Get one at https://openrouter.ai/keys. Empty = rules only |
+| `OPENROUTER_MODEL` | Default `openai/gpt-4o-mini` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Enables Gmail scan. In Google Cloud Console: enable the Gmail API, create an OAuth client (Web application), add redirect URI `http://localhost:8000/api/v1/gmail/callback`, and add your Google account as a test user |
+| `FRONTEND_URL` | Where to return after Google sign-in (default `http://localhost:5173`) |
 
 ## Limitations and risks
 

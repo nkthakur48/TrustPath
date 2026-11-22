@@ -299,6 +299,23 @@ Put in `docs/demo_postings.md` (used for the video and as test inputs):
 1. WS-A (5 min), then B, C, D in parallel (about 10 min each), then E.
 2. If time runs short, cut in this order: LLM merge polish, result screenshot, extra rules. **Never cut:** WS-A, WS-B, WS-D, and the submission write-up. A rules-only working end-to-end flow beats a half-finished LLM flow.
 
+## 12b. Gmail scan (consumer feature, implemented)
+
+Goal: from the home page, one click finds which job emails in the user's mailbox may be fake.
+
+Flow: `GET /gmail/auth-url` (sets `tp_state` cookie, returns Google consent URL, scope `gmail.readonly`) -> Google -> `GET /gmail/callback` (verifies state, exchanges code with `httpx`, stores the access token **in memory** under a random `tp_session` httponly cookie, redirects to `FRONTEND_URL/?gmail=connected`) -> UI calls `POST /gmail/scan` -> `POST /gmail/disconnect`.
+
+Design decisions:
+- Plain `httpx` against Google's OAuth and Gmail REST endpoints; no Google SDK dependency.
+- Gmail query: job keywords, last 30 days, `in:anywhere` (includes Spam), excluding Sent and Trash; max 20 messages.
+- Scan triage uses `analyzer.analyze(req, use_agent=False)`: rules plus cached domain checks, run in a thread pool. No LLM and no mailbox content sent to OpenRouter during the scan. The user opts in to the full agent per email via *Investigate*.
+- Email to request mapping: sender name -> `company`, sender address -> `recruiter_email`, subject -> `title`, body (3000 chars) -> `description`; `source` left empty (every email is "email").
+- Privacy: read-only scope, in-memory token, nothing persisted, *Disconnect* clears the session, state parameter guards against CSRF.
+- Provisioning: Google Cloud project with Gmail API enabled, OAuth client (Web), redirect URI `http://localhost:8000/api/v1/gmail/callback`, account added as a test user (gmail.readonly is a restricted scope; an unverified app is limited to test users). Credentials go in `backend/.env` as `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+- Files: `services/gmail.py`, `api/routes/gmail.py`, `tests/test_gmail.py`; frontend `InboxPage` and the home-page button.
+
+Ceilings (`ponytail:` comments in code): single-process in-memory sessions, no refresh tokens, 20 messages per scan. Upgrade path: a session store (Redis/DB), refresh tokens, pagination, Pub/Sub push for continuous monitoring.
+
 ## 13. Known ceilings (future work)
 
 - Company/recruiter checks are text-based only; real verification needs WHOIS/domain age, business registries, and LinkedIn (ToS-restricted).

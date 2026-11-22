@@ -18,9 +18,17 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     LLM_TIMEOUT_SECONDS: float = 15
+    # Without a cap OpenRouter reserves the model's full output limit, which low-credit keys can't afford.
+    LLM_MAX_TOKENS: int = 1200
+
+    # Gmail (read-only OAuth). Empty client id = Gmail feature disabled.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/gmail/callback"
+    FRONTEND_URL: str = "http://localhost:5173"
 
     # Origins allowed to call the API from a browser (the future frontend).
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:5500"]
 
 
 @lru_cache

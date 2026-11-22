@@ -1,6 +1,7 @@
 """Investigation tools the agent can call. Each returns (result_for_model, short_finding_for_user).
 Network failures never raise: they return an 'unavailable' result."""
 import ipaddress
+from functools import lru_cache
 import re
 import socket
 from datetime import datetime, timezone
@@ -12,9 +13,14 @@ import httpx
 TIMEOUT = 6
 
 
+@lru_cache(maxsize=512)  # same domains repeat across an inbox scan
 def check_domain(domain: str) -> Tuple[dict, str]:
     """DNS resolution and registration age (RDAP). Young domains are a strong scam signal."""
-    domain = domain.strip().lower().removeprefix("www.")
+    domain = domain.strip().lower()
+    # Models often pass a full email or URL; reduce it to the host.
+    if "://" in domain:
+        domain = urlparse(domain).hostname or ""
+    domain = domain.rsplit("@", 1)[-1].split("/", 1)[0].removeprefix("www.")
     if not re.fullmatch(r"[a-z0-9.-]{3,253}", domain) or "." not in domain:
         return {"error": "invalid domain"}, f"{domain}: not a valid domain"
     info: dict = {"domain": domain}

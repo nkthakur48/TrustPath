@@ -21,6 +21,7 @@ Other rules: original work only, IBM Bob / watsonx must be used to be prize-elig
 
 ## Engineering rules that follow from this
 - Product direction: consumer-facing **agentic** AI. Prefer an agent that investigates and acts (tool calls, evidence trail, drafted messages) over a single classify-this-text call. All LLM calls go through OpenRouter (`backend/app/services/openrouter.py`).
+- Gmail scan is read-only, in-memory tokens, no mailbox content stored or sent to an LLM during triage.
 - No mock logic, fake metrics, or unmeasured accuracy claims anywhere (feasibility and honesty).
 - The demo must never break: every AI/network step degrades gracefully to rules-only.
 - Secrets only in `backend/.env` (git-ignored). Never in frontend or git.
